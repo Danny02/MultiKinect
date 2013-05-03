@@ -1,9 +1,9 @@
 nbproject\
-build\*\*
-build\*.sdf
+build/*/*
+build/*.sdf
 *~
-CloudViewer\.*
-CloudViewer\target\*
+CloudViewer/.*
+CloudViewer/target/*
 CMakeCache.txt
 CMakeFiles
 Makefile
