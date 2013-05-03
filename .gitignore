@@ -1,5 +1,6 @@
 nbproject/
-build/*
+build/*/*
+build\*.sdf
 *~
 CMakeCache.txt
 CMakeFiles
