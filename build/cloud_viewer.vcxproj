@@ -328,6 +328,7 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\cloud_viewer.cpp" />
+    <ClCompile Include="..\KinectSensor.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="C:/Users/Admin/Documents/GitHub/MultiKinect/build/ZERO_CHECK.vcxproj">
@@ -335,6 +336,8 @@ if %errorlevel% neq 0 goto :VCEnd</Command>
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="..\KinectSensor.h" />
+    <ClInclude Include="..\stdafx.h" />
     <ClInclude Include="ViewInterface.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />

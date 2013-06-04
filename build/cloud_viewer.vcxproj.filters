@@ -4,6 +4,9 @@
     <ClCompile Include="..\cloud_viewer.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="..\KinectSensor.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <CustomBuild Include="..\CMakeLists.txt" />
@@ -15,5 +18,11 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ViewInterface.h" />
+    <ClInclude Include="..\KinectSensor.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
+    <ClInclude Include="..\stdafx.h">
+      <Filter>Source Files</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>
