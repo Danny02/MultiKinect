@@ -22,12 +22,12 @@
 #define sleep(x) Sleep((x) * 1000) 
 
 // comment-toggle
-const int DEVICE_NUMBER = 2;
+const int DEVICE_NUMBER = 1;
 std::vector<KinectSensor::Ptr> sensors;
 boost::array<int, 1> viewports;
 
 bool onlyOne = true;
-bool was[] = {false,false};
+bool was[DEVICE_NUMBER];
 int tick = 0;
 
 class SimpleKinectViewer {
@@ -37,19 +37,28 @@ public:
 	}
 
 	static void renderData(pcl::visualization::PCLVisualizer& viewer) {
-		if(!was[0] || !was[1]){
+		bool wasAll = true;
+		for(int i=0; i<DEVICE_NUMBER; ++i){
+			wasAll &= was[i];
+		}
+
+		if(!wasAll){
 			for(int i=0; i<DEVICE_NUMBER; ++i){
 				int prev = (i + DEVICE_NUMBER - 1) % DEVICE_NUMBER;
 				int next = (i + 1) % DEVICE_NUMBER;
 
-				while(sensors[prev]->setLaser(false) != S_OK);
-				cout << "set off " << prev << '\n';
+				if(DEVICE_NUMBER > 1){
+					while(sensors[prev]->setLaser(false) != S_OK);
+					cout << "set off " << prev << '\n';
+				}
 
 				sensors[i]->getNextColorPointCloud();
 				pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud = sensors[i]->getNextColorPointCloud();
 
-				while(sensors[next]->setLaser(true) != S_OK);
-				cout << "set on " << next << '\n';
+				if(DEVICE_NUMBER > 1){
+					while(sensors[next]->setLaser(true) != S_OK);
+					cout << "set on " << next << '\n';
+				}
 
 				pcl::PointCloud<pcl::PointXYZRGB>::Ptr newCloud(new pcl::PointCloud<pcl::PointXYZRGB>);
 				Eigen::Affine3f aux(Eigen::Affine3f::Identity());
@@ -89,9 +98,9 @@ public:
 		}
 		viewer.initCameraParameters();
 		
-		for(int i=0; i<DEVICE_NUMBER; ++i){
+		/*for(int i=0; i<DEVICE_NUMBER; ++i){
 			sensors[i]->setNearMode(true);
-		}
+		}*/
 		for(int i=1; i<DEVICE_NUMBER; ++i){
 			sensors[i]->setLaser(false);
 		}
@@ -109,7 +118,19 @@ public:
 };
 
 int main() {
+	for(int i=0; i<DEVICE_NUMBER; ++i){
+		was[i] = false;
+	}
+
 	sensors =  KinectSensor::getKinects(DEVICE_NUMBER);
+	for(int i=0; i< DEVICE_NUMBER; i++)
+	{
+		if(sensors[i].get() == NULL)
+		{			
+			printf ("ERROR: %d Kinects connected. %d Kinects requested!", i, DEVICE_NUMBER);
+			return 1;
+		}
+	}
 	
 	SimpleKinectViewer v;
 	v.run();

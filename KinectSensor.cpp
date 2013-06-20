@@ -93,10 +93,6 @@ HRESULT KinectSensor::setLaser(bool on){
 	return nuiSensor->NuiSetForceInfraredEmitterOff(!on);
 }
 
-float KinectSensor::calcDepth(USHORT raw){
-	return raw > 0 ? raw / 1000.0f : NAN;
-}
-
 template<class PointT> PointT KinectSensor::calcPos(int x, int y, USHORT raw){
 	// Calculate correct XY scaling factor so that our vertices are correctly placed in the world
 	// This helps us to unproject from the Kinect's depth camera back to a 3d world
@@ -106,7 +102,7 @@ template<class PointT> PointT KinectSensor::calcPos(int x, int y, USHORT raw){
 	// Essentially we're computing the vector that light comes in on for a given pixel on the depth camera
 	// We can then scale our x&y depth position by this and the depth to get how far along that vector we are
 
-	float realDepth = calcDepth(raw);
+	float realDepth = raw > 0 ? raw / 1000.0f : NAN;
 
 	PointT result;
 	result.x = (x - WIDTH/2)*m_xyScale * realDepth;
@@ -165,50 +161,53 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr KinectSensor::getNextDepthPointCloud(){
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr KinectSensor::getNextColorPointCloud(){	
 	pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
 
-	if ( WAIT_OBJECT_0 == WaitForSingleObject(colorEvent, 0) && WAIT_OBJECT_0 == WaitForSingleObject(depthEvent, 0) )
-	{		
+	if ( WAIT_OBJECT_0 == WaitForSingleObject(colorEvent, 0)){
 		HRESULT hr1 = getFrameData(colorFrame, colorStreamHandle);
-		HRESULT hr2 = getFrameData(depthFrame, depthStreamHandle);
 
-		if( SUCCEEDED(hr1) && SUCCEEDED(hr2) ) {
+		if(WAIT_OBJECT_0 == WaitForSingleObject(depthEvent, 0) ){
+			HRESULT hr2 = getFrameData(depthFrame, depthStreamHandle);
 
-			// Get of x, y coordinates for color in depth space
-			// This will allow us to later compensate for the differences in location, angle, etc between the depth and color cameras
-			nuiSensor->NuiImageGetColorPixelCoordinateFrameFromDepthPixelFrameAtResolution(
-				RESOLUTION,
-				RESOLUTION,
-				AREA,
-				depthFrame,
-				AREA*2,
-				colorCoordinates
-				);
+			if( SUCCEEDED(hr1) && SUCCEEDED(hr2) ) {
+				// Get of x, y coordinates for color in depth space
+				// This will allow us to later compensate for the differences in location, angle, etc between the depth and color cameras
+				nuiSensor->NuiImageGetColorPixelCoordinateFrameFromDepthPixelFrameAtResolution(
+					RESOLUTION,
+					RESOLUTION,
+					AREA,
+					depthFrame,
+					AREA*2,
+					colorCoordinates
+					);
 
-			cloud->header.frame_id = "some_tf_frame";
-			cloud->height = HEIGHT;
-			cloud->width = WIDTH;
-			cloud->is_dense = true;
-			cloud->points.resize(AREA);
+				cloud->header.frame_id = "some_tf_frame";
+				cloud->height = HEIGHT;
+				cloud->width = WIDTH;
+				cloud->is_dense = true;
+				cloud->points.resize(AREA);
 
-			for(int x = 0; x < WIDTH; ++x)
-				for(int y = 0; y < HEIGHT; ++y){
-					int id = x+y*WIDTH;					
-					pcl::PointXYZRGB point = calcPos<pcl::PointXYZRGB>(x, y, depthFrame[id]);
+				for(int x = 0; x < WIDTH; ++x)
+					for(int y = 0; y < HEIGHT; ++y){
+						int id = x+y*WIDTH;					
+						pcl::PointXYZRGB point = calcPos<pcl::PointXYZRGB>(x, y, depthFrame[id]);
 
-					LONG colorInDepthX = colorCoordinates[id * 2];
-					LONG colorInDepthY = colorCoordinates[id * 2 + 1];
-					// make sure the depth pixel maps to a valid point in color space
-					if ( colorInDepthX >= 0 && colorInDepthX < WIDTH && colorInDepthY >= 0 && colorInDepthY < HEIGHT )
-					{
-						LONG colorIndex = colorInDepthX + colorInDepthY * WIDTH;
-						point.b = colorFrame[4*colorIndex];
-						point.g = colorFrame[4*colorIndex+1];
-						point.r = colorFrame[4*colorIndex+2];
+						LONG colorInDepthY = colorCoordinates[id * 2];
+						LONG colorInDepthX = colorCoordinates[id * 2 + 1];
+						// make sure the depth pixel maps to a valid point in color space
+						if ( colorInDepthX >= 0 && colorInDepthX < WIDTH && colorInDepthY >= 0 && colorInDepthY < HEIGHT )
+						{
+							//XRGB format, padding byte + RGB
+							LONG colorIndex = (colorInDepthX + colorInDepthY * WIDTH) * 4;
+							point.r = colorFrame[colorIndex];
+							point.g = colorFrame[colorIndex+1];
+							point.b = colorFrame[colorIndex+2];
+						}
+
+						cloud->points[id] = point;
 					}
-
-					cloud->points[id] = point;
-				}
+			}
 		}
 	}
+
 	return cloud;
 };
 
