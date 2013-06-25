@@ -26,10 +26,10 @@ private:
 
 	KinectSensor(INuiSensor*, HANDLE, HANDLE, HANDLE, HANDLE);
 
-	template<class A>
+	template<typename A>
     HRESULT getFrameData(A* data, HANDLE stream);
 
-	template<class PointT> 
+	template<typename PointT> 
 	PointT calcPos(int x, int y, USHORT raw);
 
 	float calcDepth(USHORT raw);

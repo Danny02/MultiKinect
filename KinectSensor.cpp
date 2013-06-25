@@ -158,11 +158,94 @@ pcl::PointCloud<pcl::PointXYZ>::Ptr KinectSensor::getNextDepthPointCloud(){
 	return cloud;
 };
 
+#include <strsafe.h>
+HRESULT GetScreenshotFileName(wchar_t *screenshotName, UINT screenshotNameSize)
+{
+    wchar_t *knownPath = NULL;
+    HRESULT hr = SHGetKnownFolderPath(FOLDERID_Pictures, 0, NULL, &knownPath);
+
+    if (SUCCEEDED(hr))
+    {
+        // Get the time
+        wchar_t timeString[MAX_PATH];
+        GetTimeFormatEx(NULL, 0, NULL, L"hh'-'mm'-'ss", timeString, _countof(timeString));
+
+        // File name will be KinectSnapshot-HH-MM-SS.wav
+        StringCchPrintfW(screenshotName, screenshotNameSize, L"%s\\KinectSnapshot-%s.bmp", knownPath, timeString);
+    }
+
+    CoTaskMemFree(knownPath);
+    return hr;
+}
+
+#include <d2d1.h>
+
+HRESULT SaveBitmapToFile(BYTE* pBitmapBits, LONG lWidth, LONG lHeight, WORD wBitsPerPixel, LPCWSTR lpszFilePath)
+{
+    DWORD dwByteCount = lWidth * lHeight * (wBitsPerPixel / 8);
+
+    BITMAPINFOHEADER bmpInfoHeader = {0};
+
+    bmpInfoHeader.biSize        = sizeof(BITMAPINFOHEADER);  // Size of the header
+    bmpInfoHeader.biBitCount    = wBitsPerPixel;             // Bit count
+    bmpInfoHeader.biCompression = BI_RGB;                    // Standard RGB, no compression
+    bmpInfoHeader.biWidth       = lWidth;                    // Width in pixels
+    bmpInfoHeader.biHeight      = -lHeight;                  // Height in pixels, negative indicates it's stored right-side-up
+    bmpInfoHeader.biPlanes      = 1;                         // Default
+    bmpInfoHeader.biSizeImage   = dwByteCount;               // Image size in bytes
+
+    BITMAPFILEHEADER bfh = {0};
+
+    bfh.bfType    = 0x4D42;                                           // 'M''B', indicates bitmap
+    bfh.bfOffBits = bmpInfoHeader.biSize + sizeof(BITMAPFILEHEADER);  // Offset to the start of pixel data
+    bfh.bfSize    = bfh.bfOffBits + bmpInfoHeader.biSizeImage;        // Size of image + headers
+
+    // Create the file on disk to write to
+    HANDLE hFile = CreateFileW(lpszFilePath, GENERIC_WRITE, 0, NULL, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, NULL);
+
+    // Return if error opening file
+    if (NULL == hFile) 
+    {
+        return E_ACCESSDENIED;
+    }
+
+    DWORD dwBytesWritten = 0;
+    
+    // Write the bitmap file header
+    if ( !WriteFile(hFile, &bfh, sizeof(bfh), &dwBytesWritten, NULL) )
+    {
+        CloseHandle(hFile);
+        return E_FAIL;
+    }
+    
+    // Write the bitmap info header
+    if ( !WriteFile(hFile, &bmpInfoHeader, sizeof(bmpInfoHeader), &dwBytesWritten, NULL) )
+    {
+        CloseHandle(hFile);
+        return E_FAIL;
+    }
+    
+    // Write the RGB Data
+    if ( !WriteFile(hFile, pBitmapBits, bmpInfoHeader.biSizeImage, &dwBytesWritten, NULL) )
+    {
+        CloseHandle(hFile);
+        return E_FAIL;
+    }    
+
+    // Close the file
+    CloseHandle(hFile);
+    return S_OK;
+}
+
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr KinectSensor::getNextColorPointCloud(){	
 	pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
 
 	if ( WAIT_OBJECT_0 == WaitForSingleObject(colorEvent, 0)){
 		HRESULT hr1 = getFrameData(colorFrame, colorStreamHandle);
+		
+        /*WCHAR screenshotPath[MAX_PATH];
+        GetScreenshotFileName(screenshotPath, _countof(screenshotPath));
+		SaveBitmapToFile(colorFrame, 640, 480, 32, screenshotPath);*/
 
 		if(WAIT_OBJECT_0 == WaitForSingleObject(depthEvent, 0) ){
 			HRESULT hr2 = getFrameData(depthFrame, depthStreamHandle);
@@ -190,16 +273,18 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr KinectSensor::getNextColorPointCloud(){
 						int id = x+y*WIDTH;					
 						pcl::PointXYZRGB point = calcPos<pcl::PointXYZRGB>(x, y, depthFrame[id]);
 
-						LONG colorInDepthY = colorCoordinates[id * 2];
-						LONG colorInDepthX = colorCoordinates[id * 2 + 1];
+						if(point.z != point.z) continue;
+
+						LONG colorInDepthX = colorCoordinates[id * 2];
+						LONG colorInDepthY = colorCoordinates[id * 2 + 1];
 						// make sure the depth pixel maps to a valid point in color space
 						if ( colorInDepthX >= 0 && colorInDepthX < WIDTH && colorInDepthY >= 0 && colorInDepthY < HEIGHT )
 						{
-							//XRGB format, padding byte + RGB
+							//RGBx format, RGB + padding byte
 							LONG colorIndex = (colorInDepthX + colorInDepthY * WIDTH) * 4;
 							point.r = colorFrame[colorIndex];
-							point.g = colorFrame[colorIndex+1];
-							point.b = colorFrame[colorIndex+2];
+							point.g = colorFrame[colorIndex + 1];
+							point.b = colorFrame[colorIndex + 2];
 						}
 
 						cloud->points[id] = point;

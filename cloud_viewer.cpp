@@ -5,6 +5,7 @@
 #include <pcl/common/transforms.h>
 #include <pcl/keypoints/sift_keypoint.h>
 #include <pcl/filters/statistical_outlier_removal.h>
+#include <pcl/filters/filter.h>
 
 #include "stdafx.h"
 #include <iostream>
@@ -22,7 +23,7 @@
 #define sleep(x) Sleep((x) * 1000) 
 
 // comment-toggle
-const int DEVICE_NUMBER = 1;
+const int DEVICE_NUMBER = 2;
 std::vector<KinectSensor::Ptr> sensors;
 boost::array<int, 1> viewports;
 
@@ -117,7 +118,7 @@ public:
 	}
 };
 
-int main() {
+int main2() {
 	for(int i=0; i<DEVICE_NUMBER; ++i){
 		was[i] = false;
 	}
@@ -503,67 +504,80 @@ main23 (int argc, char **argv)
 }
 
 
-void downsample( pcl::PointCloud<pcl::PointXYZ>::Ptr points, float leafsize, pcl::PointCloud<pcl::PointXYZ>::Ptr downsampled_out)
-{
-  pcl::VoxelGrid<pcl::PointXYZ> vox_grid;
-  vox_grid.setInputCloud(points);
-  vox_grid.setLeafSize (leafsize, leafsize, leafsize);
-  vox_grid.filter(*downsampled_out);
-}
+typedef pcl::PointXYZRGB PointT;
 
-void computeNormals(pcl::PointCloud<pcl::PointXYZ>::Ptr points, pcl::PointCloud<pcl::Normal>::Ptr normals, float normal_radius)
+void computeNormals(pcl::PointCloud<PointT>::Ptr points, pcl::PointCloud<pcl::Normal>::Ptr normals, float normal_radius)
 {
-	pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> norm_est;
+	pcl::NormalEstimation<PointT, pcl::Normal > norm_est;
 	norm_est.setInputCloud (points);
-	pcl::search::KdTree<pcl::PointXYZ>::Ptr search_method_xyz (new pcl::search::KdTree<pcl::PointXYZ>);
+	pcl::search::KdTree<PointT>::Ptr search_method_xyz (new pcl::search::KdTree<PointT>);
 	norm_est.setSearchMethod (search_method_xyz);
 	norm_est.setRadiusSearch (normal_radius);
 	norm_est.compute (*normals);
 }
 
-void visualize(pcl::PointCloud<pcl::PointXYZ>::Ptr points, pcl::PointCloud<pcl::PointXYZ>::Ptr scaled, pcl::PointCloud<pcl::Normal>::Ptr normals)
+//template<typename PointT>
+void downsample(pcl::PointCloud<PointT>::Ptr points, float leafsize, pcl::PointCloud<PointT>::Ptr downsampled_out)
+{
+  pcl::VoxelGrid<PointT> vox_grid;
+  vox_grid.setInputCloud(points);
+  vox_grid.setLeafSize (leafsize, leafsize, leafsize);
+  vox_grid.filter(*downsampled_out);
+}
+
+//template<typename PointT>
+void visualize(pcl::PointCloud<PointT>::Ptr points, pcl::PointCloud<PointT>::Ptr scaled, pcl::PointCloud<pcl::Normal>::Ptr normals)
 {
 	pcl::visualization::PCLVisualizer viz;
 	viz.addPointCloud(points, "cloud3");
 	viz.addPointCloud(scaled, "scaled4");
-	viz.addPointCloudNormals<pcl::PointXYZ, pcl::Normal>(scaled, normals, 1, 0.);
+	//viz.addPointCloudNormals<PointT, pcl::Normal>(scaled, normals, 1, 0.);
 	viz.spin();
 }
 
 void detectkeypoints(pcl::PointCloud<pcl::PointXYZRGB>::Ptr points, float minscale, int nroctaves, int nrscalesperoctave, float mincontrast, pcl::PointCloud<pcl::PointWithScale>::Ptr keypointsout)
 {
 	pcl::SIFTKeypoint<pcl::PointXYZRGB, pcl::PointWithScale> siftdetect;
-	// Use a FLANNb a se d KdTree t o p e r f o rm n e i g h b o r h o o d s e a r c h e s
+	// Use a FLANNb a se d KdTree t o  p e r f o rm  n e i g h b o r h o o d  s e a r c h e s
 	siftdetect.setSearchMethod(pcl::search::KdTree<pcl::PointXYZRGB>::Ptr(new pcl::search::KdTree<pcl::PointXYZRGB>));
-	// Se t t h e d e t e c t i o n p a r am e t e r s
+	// Se t  t h e  d e t e c t i o n  p a r am e t e r s
 	siftdetect.setScales(minscale, nroctaves, nrscalesperoctave) ;
 	siftdetect.setMinimumContrast(mincontrast) ;
-	// Se t t h e i n p u t
+	// Se t  t h e  i n p u t
 	siftdetect.setInputCloud(points);
 
 	siftdetect.compute(*keypointsout);
 }
 
-int main22(int argc, char **argv){
+int main(int argc, char **argv){
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud1 (new pcl::PointCloud<pcl::PointXYZRGB>);
+	pcl::io::loadPCDFile ("kinect0.pcd", *cloud1);
 
-	pcl::PointCloud<pcl::PointXYZ>::Ptr cloud1 (new pcl::PointCloud<pcl::PointXYZ>);
-	pcl::io::loadPCDFile ("test0.pcd", *cloud1);
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud2 (new pcl::PointCloud<pcl::PointXYZRGB>);
+	pcl::io::loadPCDFile ("kinect1.pcd", *cloud2);
 
-	pcl::PointCloud<pcl::PointXYZ>::Ptr cloud2 (new pcl::PointCloud<pcl::PointXYZ>);
-	pcl::io::loadPCDFile ("test1.pcd", *cloud2);
-
-	pcl::PointCloud<pcl::PointXYZ>::Ptr ds1 (new pcl::PointCloud<pcl::PointXYZ>); 
-	downsample(cloud1, 0.01f, ds1);
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr ds1 (new pcl::PointCloud<pcl::PointXYZRGB>); 
+	downsample(cloud1, 0.1f, ds1);
 	/*pcl::PointCloud<pcl::PointXYZ>::Ptr ds2 (new pcl::PointCloud<pcl::PointXYZ>); 
 	downsample(cloud2, 0.01f, ds2);*/
 
 	
-	/*pcl::PointCloud<pcl::PointWithScale>::Ptr keys (new pcl::PointCloud<pcl::PointWithScale>); 
+	pcl::PointCloud<pcl::PointWithScale>::Ptr keys (new pcl::PointCloud<pcl::PointWithScale>); 
 
-	float a = 0.001f;
-	detectkeypoints(ds1, a, 4, 5, 1.0f, keys);*/
+	detectkeypoints(ds1, 0.1f, 4, 5, 1.0f, keys);
 
-	return 0;
+	pcl::PointCloud<pcl::Normal>::Ptr nor1 (new pcl::PointCloud<pcl::Normal>);
+	computeNormals(ds1, nor1, 0.2);
+
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr keypoints_ptr(new pcl::PointCloud<pcl::PointXYZRGB>); 
+    pcl::copyPointCloud (*keys , *keypoints_ptr); 
+
+	visualize(keypoints_ptr, ds1, nor1);
+
+	while(true)
+		sleep(1);
+
+ 	return 0;
 }
 
 
