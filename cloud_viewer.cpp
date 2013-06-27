@@ -6,6 +6,21 @@
 #include <pcl/keypoints/sift_keypoint.h>
 #include <pcl/filters/statistical_outlier_removal.h>
 #include <pcl/filters/filter.h>
+#include <pcl/features/pfh.h>	
+#include <limits>
+#include <fstream>
+#include <vector>
+#include <Eigen/Core>
+#include <pcl/point_types.h>
+#include <pcl/point_cloud.h>
+#include <pcl/io/pcd_io.h>
+#include <pcl/kdtree/kdtree_flann.h>
+#include <pcl/filters/passthrough.h>
+#include <pcl/filters/voxel_grid.h>
+#include <pcl/features/normal_3d.h>
+#include <pcl/features/fpfh.h>
+#include <pcl/registration/ia_ransac.h>
+
 
 #include "stdafx.h"
 #include <iostream>
@@ -22,7 +37,8 @@
 
 #define sleep(x) Sleep((x) * 1000) 
 
-// comment-toggle
+#define SCAN 0
+#if SCAN == 1
 const int DEVICE_NUMBER = 2;
 std::vector<KinectSensor::Ptr> sensors;
 boost::array<int, 1> viewports;
@@ -118,7 +134,7 @@ public:
 	}
 };
 
-int main2() {
+int main() {
 	for(int i=0; i<DEVICE_NUMBER; ++i){
 		was[i] = false;
 	}
@@ -139,230 +155,9 @@ int main2() {
 	return 0;
 }
 
-#include <limits>
-#include <fstream>
-#include <vector>
-#include <Eigen/Core>
-#include <pcl/point_types.h>
-#include <pcl/point_cloud.h>
-#include <pcl/io/pcd_io.h>
-#include <pcl/kdtree/kdtree_flann.h>
-#include <pcl/filters/passthrough.h>
-#include <pcl/filters/voxel_grid.h>
-#include <pcl/features/normal_3d.h>
-#include <pcl/features/fpfh.h>
-#include <pcl/registration/ia_ransac.h>
-
-class FeatureCloud
+pcl::PointCloud<pcl::PointXYZRGB>::Ptr createTemplate()
 {
-  public:
-    // A bit of shorthand
-    typedef pcl::PointCloud<pcl::PointXYZ> PointCloud;
-    typedef pcl::PointCloud<pcl::Normal> SurfaceNormals;
-    typedef pcl::PointCloud<pcl::FPFHSignature33> LocalFeatures;
-    typedef pcl::search::KdTree<pcl::PointXYZ> SearchMethod;
-
-    FeatureCloud () :
-      search_method_xyz_ (new SearchMethod),
-      normal_radius_ (0.02f),
-      feature_radius_ (0.02f)
-    {}
-
-    ~FeatureCloud () {}
-
-    // Process the given cloud
-    void
-    setInputCloud (PointCloud::Ptr xyz)
-    {
-      xyz_ = xyz;
-      processInput ();
-    }
-
-    // Load and process the cloud in the given PCD file
-    void
-    loadInputCloud (const std::string &pcd_file)
-    {
-      xyz_ = PointCloud::Ptr (new PointCloud);
-      pcl::io::loadPCDFile (pcd_file, *xyz_);
-      processInput ();
-    }
-
-    // Get a pointer to the cloud 3D points
-    PointCloud::Ptr
-    getPointCloud () const
-    {
-      return (xyz_);
-    }
-
-    // Get a pointer to the cloud of 3D surface normals
-    SurfaceNormals::Ptr
-    getSurfaceNormals () const
-    {
-      return (normals_);
-    }
-
-    // Get a pointer to the cloud of feature descriptors
-    LocalFeatures::Ptr
-    getLocalFeatures () const
-    {
-      return (features_);
-    }
-
-  protected:
-    // Compute the surface normals and local features
-    void
-    processInput ()
-    {
-      computeSurfaceNormals ();
-      computeLocalFeatures ();
-    }
-
-    // Compute the surface normals
-    void
-    computeSurfaceNormals ()
-    {
-      normals_ = SurfaceNormals::Ptr (new SurfaceNormals);
-
-      pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> norm_est;
-      norm_est.setInputCloud (xyz_);
-      norm_est.setSearchMethod (search_method_xyz_);
-      norm_est.setRadiusSearch (normal_radius_);
-      norm_est.compute (*normals_);
-    }
-
-    // Compute the local feature descriptors
-    void
-    computeLocalFeatures ()
-    {
-      features_ = LocalFeatures::Ptr (new LocalFeatures);
-
-      pcl::FPFHEstimation<pcl::PointXYZ, pcl::Normal, pcl::FPFHSignature33> fpfh_est;
-      fpfh_est.setInputCloud (xyz_);
-      fpfh_est.setInputNormals (normals_);
-      fpfh_est.setSearchMethod (search_method_xyz_);
-      fpfh_est.setRadiusSearch (feature_radius_);
-      fpfh_est.compute (*features_);
-    }
-
-  private:
-    // Point cloud data
-    PointCloud::Ptr xyz_;
-    SurfaceNormals::Ptr normals_;
-    LocalFeatures::Ptr features_;
-    SearchMethod::Ptr search_method_xyz_;
-
-    // Parameters
-    float normal_radius_;
-    float feature_radius_;
-};
-
-class TemplateAlignment
-{
-  public:
-
-    // A struct for storing alignment results
-    struct Result
-    {
-      float fitness_score;
-      Eigen::Matrix4f final_transformation;
-      EIGEN_MAKE_ALIGNED_OPERATOR_NEW
-    };
-
-    TemplateAlignment () :
-      min_sample_distance_ (0.05f),
-      max_correspondence_distance_ (0.01f*0.01f),
-      nr_iterations_ (500)
-    {
-      // Intialize the parameters in the Sample Consensus Intial Alignment (SAC-IA) algorithm
-      sac_ia_.setMinSampleDistance (min_sample_distance_);
-      sac_ia_.setMaxCorrespondenceDistance (max_correspondence_distance_);
-      sac_ia_.setMaximumIterations (nr_iterations_);
-    }
-
-    ~TemplateAlignment () {}
-
-    // Set the given cloud as the target to which the templates will be aligned
-    void
-    setTargetCloud (FeatureCloud &target_cloud)
-    {
-      target_ = target_cloud;
-      sac_ia_.setInputTarget (target_cloud.getPointCloud ());
-      sac_ia_.setTargetFeatures (target_cloud.getLocalFeatures ());
-    }
-
-    // Add the given cloud to the list of template clouds
-    void
-    addTemplateCloud (FeatureCloud &template_cloud)
-    {
-      templates_.push_back (template_cloud);
-    }
-
-    // Align the given template cloud to the target specified by setTargetCloud ()
-    void
-    align (FeatureCloud &template_cloud, TemplateAlignment::Result &result)
-    {
-      sac_ia_.setInputCloud (template_cloud.getPointCloud ());
-      sac_ia_.setSourceFeatures (template_cloud.getLocalFeatures ());
-
-      pcl::PointCloud<pcl::PointXYZ> registration_output;
-      sac_ia_.align (registration_output);
-
-      result.fitness_score = (float) sac_ia_.getFitnessScore (max_correspondence_distance_);
-      result.final_transformation = sac_ia_.getFinalTransformation ();
-    }
-
-    // Align all of template clouds set by addTemplateCloud to the target specified by setTargetCloud ()
-    void
-    alignAll (std::vector<TemplateAlignment::Result, Eigen::aligned_allocator<Result> > &results)
-    {
-      results.resize (templates_.size ());
-      for (size_t i = 0; i < templates_.size (); ++i)
-      {
-        align (templates_[i], results[i]);
-      }
-    }
-
-    // Align all of template clouds to the target cloud to find the one with best alignment score
-    int
-    findBestAlignment (TemplateAlignment::Result &result)
-    {
-      // Align all of the templates to the target cloud
-      std::vector<Result, Eigen::aligned_allocator<Result> > results;
-      alignAll (results);
-
-      // Find the template with the best (lowest) fitness score
-      float lowest_score = std::numeric_limits<float>::infinity ();
-      int best_template = 0;
-      for (size_t i = 0; i < results.size (); ++i)
-      {
-        const Result &r = results[i];
-        if (r.fitness_score < lowest_score)
-        {
-          lowest_score = r.fitness_score;
-          best_template = (int) i;
-        }
-      }
-
-      // Output the best alignment
-      result = results[best_template];
-      return (best_template);
-    }
-
-  private:
-    // A list of template clouds and the target to which they will be aligned
-    std::vector<FeatureCloud> templates_;
-    FeatureCloud target_;
-
-    // The Sample Consensus Initial Alignment (SAC-IA) registration routine and its parameters
-    pcl::SampleConsensusInitialAlignment<pcl::PointXYZ, pcl::PointXYZ, pcl::FPFHSignature33> sac_ia_;
-    float min_sample_distance_;
-    float max_correspondence_distance_;
-    int nr_iterations_;
-};
-
-FeatureCloud::PointCloud::Ptr createTemplate()
-{
-	FeatureCloud::PointCloud::Ptr temp(new FeatureCloud::PointCloud());
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr temp(new pcl::PointCloud<pcl::PointXYZRGB>());
 
 	const float depth = 0.25f, width = 0.25f, height=0.105f, backHeight = 0.23f;
 	const float stepSize = 0.005f;
@@ -372,7 +167,7 @@ FeatureCloud::PointCloud::Ptr createTemplate()
 	{
 		for(float y=0; y < height; y += stepSize)
 		{
-			pcl::PointXYZ result(width, y, z);
+			pcl::PointXYZRGB result(width, y, z);
 			temp->points.push_back(result);
 		}
 	}
@@ -382,7 +177,7 @@ FeatureCloud::PointCloud::Ptr createTemplate()
 	{
 		for(float y=0; y < height; y += stepSize)
 		{
-			pcl::PointXYZ result(x, y, 0);
+			pcl::PointXYZRGB result(x, y, 0);
 			temp->points.push_back(result);
 		}
 	}
@@ -392,7 +187,7 @@ FeatureCloud::PointCloud::Ptr createTemplate()
 	{
 		for(float y=0; y <= height; y += stepSize)
 		{
-			pcl::PointXYZ result(0, y, z);
+			pcl::PointXYZRGB result(0, y, z);
 			temp->points.push_back(result);
 		}
 	}
@@ -402,7 +197,7 @@ FeatureCloud::PointCloud::Ptr createTemplate()
 	{
 		for(float x=0; x <= width; x += stepSize)
 		{
-			pcl::PointXYZ result(x, height, z);
+			pcl::PointXYZRGB result(x, height, z);
 			temp->points.push_back(result);
 		}
 	}
@@ -412,7 +207,7 @@ FeatureCloud::PointCloud::Ptr createTemplate()
 	{
 		for(float y=0; y < backHeight; y += stepSize)
 		{
-			pcl::PointXYZ result(x, y, depth);
+			pcl::PointXYZRGB result(x, y, depth);
 			temp->points.push_back(result);
 		}
 	}
@@ -420,113 +215,52 @@ FeatureCloud::PointCloud::Ptr createTemplate()
 	return temp;
 }
 
-// Align a collection of object templates to a sample point cloud
-int
-main23 (int argc, char **argv)
-{
-
-  // Load the object templates specified in the object_templates.txt file
-  std::vector<FeatureCloud> object_templates;
-
-	FeatureCloud template_cloud;
-    template_cloud.setInputCloud(createTemplate());
-
-  // Load the target cloud PCD file
-  pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
-  pcl::io::loadPCDFile ("test1.pcd", *cloud);
-
-  // Preprocess the cloud by...
-  // ...removing distant points
-  /*const float depth_limit = 1.0;
-  pcl::PassThrough<pcl::PointXYZ> pass;
-  pass.setInputCloud (cloud);
-  pass.setFilterFieldName ("z");
-  pass.setFilterLimits (0, depth_limit);
-  pass.filter (*cloud);*/
-
-  // ... and downsampling the point cloud
-  const float voxel_grid_size = 0.01f;
-  pcl::VoxelGrid<pcl::PointXYZ> vox_grid;
-  vox_grid.setInputCloud (cloud);
-  vox_grid.setLeafSize (voxel_grid_size, voxel_grid_size, voxel_grid_size);
-  pcl::PointCloud<pcl::PointXYZ>::Ptr tempCloud (new pcl::PointCloud<pcl::PointXYZ>); 
-  vox_grid.filter (*tempCloud);
-  cloud = tempCloud;
-
-  // Assign to the target FeatureCloud
-  FeatureCloud target_cloud;
-  target_cloud.setInputCloud (cloud);
-
-  // Set the TemplateAlignment inputs
-  TemplateAlignment template_align;
-  template_align.setTargetCloud (target_cloud);
-
-  // Find the best template alignment
-  TemplateAlignment::Result best_alignment;
-  template_align.align(template_cloud, best_alignment);
-  //const FeatureCloud &best_template = object_templates[best_index];
-
-  // Print the alignment fitness score (values less than 0.00002 are good)
-  printf ("Best fitness score: %f\n", best_alignment.fitness_score);
-
-  // Print the rotation matrix and translation vector
-  Eigen::Matrix3f rotation = best_alignment.final_transformation.block<3,3>(0, 0);
-  Eigen::Vector3f translation = best_alignment.final_transformation.block<3,1>(0, 3);
-
-  printf ("\n");
-  printf ("    | %6.3f %6.3f %6.3f | \n", rotation (0,0), rotation (0,1), rotation (0,2));
-  printf ("R = | %6.3f %6.3f %6.3f | \n", rotation (1,0), rotation (1,1), rotation (1,2));
-  printf ("    | %6.3f %6.3f %6.3f | \n", rotation (2,0), rotation (2,1), rotation (2,2));
-  printf ("\n");
-  printf ("t = < %0.3f, %0.3f, %0.3f >\n", translation (0), translation (1), translation (2));
-
-  // Save the aligned template for visualization
-  pcl::PointCloud<pcl::PointXYZ> transformed_cloud;
-  pcl::transformPointCloud (*template_cloud.getPointCloud (), transformed_cloud, best_alignment.final_transformation);
-  pcl::io::savePCDFileBinary ("output.pcd", transformed_cloud);
-	
-		//pcl::visualization::CloudViewer viewer("PCL OpenNI Viewer1");
-		//
-		//{
-		//	pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
-		//	pcl::io::loadPCDFile ("test1.pcd", *cloud);
-		//	viewer.showCloud(cloud);
-		//}
-		///*{
-		//	pcl::PointCloud<pcl::PointXYZ>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZ>);
-		//	pcl::io::loadPCDFile ("output.pcd", *cloud);
-		//	viewer.showCloud(cloud);
-		//}*/
-
-		//while(!viewer.wasStopped()){}
-
-  return (0);
-}
-
+#else
 
 typedef pcl::PointXYZRGB PointT;
+typedef pcl::PointCloud<pcl::FPFHSignature33> LocalFeatures;
 
-void computeNormals(pcl::PointCloud<PointT>::Ptr points, pcl::PointCloud<pcl::Normal>::Ptr normals, float normal_radius)
+pcl::PointCloud<pcl::Normal>::Ptr computeNormals(pcl::PointCloud<PointT>::Ptr &points, float normal_radius)
 {
+	pcl::PointCloud<pcl::Normal>::Ptr normals (new pcl::PointCloud<pcl::Normal>);
 	pcl::NormalEstimation<PointT, pcl::Normal > norm_est;
 	norm_est.setInputCloud (points);
 	pcl::search::KdTree<PointT>::Ptr search_method_xyz (new pcl::search::KdTree<PointT>);
 	norm_est.setSearchMethod (search_method_xyz);
 	norm_est.setRadiusSearch (normal_radius);
 	norm_est.compute (*normals);
+	return normals;
 }
 
 //template<typename PointT>
-void downsample(pcl::PointCloud<PointT>::Ptr points, float leafsize, pcl::PointCloud<PointT>::Ptr downsampled_out)
+pcl::PointCloud<PointT>::Ptr downsample(pcl::PointCloud<PointT>::Ptr &points, float leafsize)
 {
+  pcl::PointCloud<PointT>::Ptr downsampled_out (new pcl::PointCloud<PointT>); 
+
   pcl::VoxelGrid<PointT> vox_grid;
   vox_grid.setInputCloud(points);
   vox_grid.setLeafSize (leafsize, leafsize, leafsize);
   vox_grid.filter(*downsampled_out);
+
+  return downsampled_out;
+}
+
+LocalFeatures::Ptr	computeLocalFeatures (pcl::PointCloud<PointT>::Ptr &points, pcl::PointCloud<pcl::Normal>::Ptr &normals, float feature_radius)
+{
+	LocalFeatures::Ptr features_ = LocalFeatures::Ptr (new LocalFeatures);
+
+	pcl::FPFHEstimation<PointT, pcl::Normal, pcl::FPFHSignature33> fpfh_est;
+	fpfh_est.setInputCloud (points);
+	fpfh_est.setInputNormals (normals);
+	fpfh_est.setSearchMethod (pcl::search::KdTree<PointT>::Ptr (new pcl::search::KdTree<PointT>));
+	fpfh_est.setRadiusSearch (feature_radius);
+	fpfh_est.compute (*features_);
+
+	return features_;
 }
 
 //template<typename PointT>
-void visualize(pcl::PointCloud<PointT>::Ptr points, pcl::PointCloud<PointT>::Ptr scaled, pcl::PointCloud<pcl::Normal>::Ptr normals)
+void visualize(pcl::PointCloud<PointT>::Ptr points, pcl::PointCloud<PointT>::Ptr scaled)
 {
 	pcl::visualization::PCLVisualizer viz;
 	viz.addPointCloud(points, "cloud3");
@@ -535,8 +269,10 @@ void visualize(pcl::PointCloud<PointT>::Ptr points, pcl::PointCloud<PointT>::Ptr
 	viz.spin();
 }
 
-void detectkeypoints(pcl::PointCloud<pcl::PointXYZRGB>::Ptr points, float minscale, int nroctaves, int nrscalesperoctave, float mincontrast, pcl::PointCloud<pcl::PointWithScale>::Ptr keypointsout)
+pcl::PointCloud<pcl::PointWithScale>::Ptr detectkeypoints(pcl::PointCloud<pcl::PointXYZRGB>::Ptr &points, float minscale, int nroctaves, int nrscalesperoctave, float mincontrast)
 {
+	pcl::PointCloud<pcl::PointWithScale>::Ptr keypointsout (new pcl::PointCloud<pcl::PointWithScale>); 
+
 	pcl::SIFTKeypoint<pcl::PointXYZRGB, pcl::PointWithScale> siftdetect;
 	// Use a FLANNb a se d KdTree t o  p e r f o rm  n e i g h b o r h o o d  s e a r c h e s
 	siftdetect.setSearchMethod(pcl::search::KdTree<pcl::PointXYZRGB>::Ptr(new pcl::search::KdTree<pcl::PointXYZRGB>));
@@ -547,37 +283,268 @@ void detectkeypoints(pcl::PointCloud<pcl::PointXYZRGB>::Ptr points, float minsca
 	siftdetect.setInputCloud(points);
 
 	siftdetect.compute(*keypointsout);
+
+	return keypointsout;
+}
+
+pcl::PointCloud<pcl::PFHSignature125>::Ptr
+compute_PFH_features_at_keypoints (pcl::PointCloud<pcl::PointXYZRGB>::Ptr &points, 
+                                   pcl::PointCloud<pcl::Normal>::Ptr &normals, 
+                                   pcl::PointCloud<pcl::PointWithScale>::Ptr &keypoints, float feature_radius)
+{
+  pcl::PointCloud<pcl::PFHSignature125>::Ptr descriptors_out (new pcl::PointCloud<pcl::PFHSignature125>); 
+
+  // Create a PFHEstimation object
+  pcl::PFHEstimation<pcl::PointXYZRGB, pcl::Normal, pcl::PFHSignature125> pfh_est;
+
+  // Set it to use a FLANN-based KdTree to perform its neighborhood searches
+  pfh_est.setSearchMethod (pcl::search::KdTree<pcl::PointXYZRGB>::Ptr (new pcl::search::KdTree<pcl::PointXYZRGB>));
+
+  // Specify the radius of the PFH feature
+  pfh_est.setRadiusSearch (feature_radius);
+
+  /* This is a little bit messy: since our keypoint detection returns PointWithScale points, but we want to
+   * use them as an input to our PFH estimation, which expects clouds of PointXYZRGB points.  To get around this,
+   * we'll use copyPointCloud to convert "keypoints" (a cloud of type PointCloud<PointWithScale>) to 
+   * "keypoints_xyzrgb" (a cloud of type PointCloud<PointXYZRGB>).  Note that the original cloud doesn't have any RGB 
+   * values, so when we copy from PointWithScale to PointXYZRGB, the new r,g,b fields will all be zero.
+   */
+  pcl::PointCloud<pcl::PointXYZRGB>::Ptr keypoints_xyzrgb (new pcl::PointCloud<pcl::PointXYZRGB>);
+  pcl::copyPointCloud (*keypoints, *keypoints_xyzrgb);
+
+  // Use all of the points for analyzing the local structure of the cloud
+  pfh_est.setSearchSurface (points);  
+  pfh_est.setInputNormals (normals);  
+
+  // But only compute features at the keypoints
+  pfh_est.setInputCloud (keypoints_xyzrgb);
+
+  // Compute the features
+  pfh_est.compute (*descriptors_out);
+
+  return descriptors_out;
+}
+
+void
+find_feature_correspondences (pcl::PointCloud<pcl::PFHSignature125>::Ptr &source_descriptors,
+                              pcl::PointCloud<pcl::PFHSignature125>::Ptr &target_descriptors,
+                              std::vector<int> &correspondences_out, std::vector<float> &correspondence_scores_out)
+{
+  // Resize the output vector
+  correspondences_out.resize (source_descriptors->size ());
+  correspondence_scores_out.resize (source_descriptors->size ());
+
+  // Use a KdTree to search for the nearest matches in feature space
+  pcl::search::KdTree<pcl::PFHSignature125> descriptor_kdtree;
+  descriptor_kdtree.setInputCloud (target_descriptors);
+
+  // Find the index of the best match for each keypoint, and store it in "correspondences_out"
+  const int k = 1;
+  std::vector<int> k_indices (k);
+  std::vector<float> k_squared_distances (k);
+  for (size_t i = 0; i < source_descriptors->size (); ++i)
+  {
+    descriptor_kdtree.nearestKSearch (*source_descriptors, i, k, k_indices, k_squared_distances);
+    correspondences_out[i] = k_indices[0];
+    correspondence_scores_out[i] = k_squared_distances[0];
+  }
+}
+
+void visualize_keypoints (const pcl::PointCloud<pcl::PointXYZRGB>::Ptr points,
+                          const pcl::PointCloud<pcl::PointWithScale>::Ptr keypoints)
+{
+  // Add the points to the vizualizer
+  pcl::visualization::PCLVisualizer viz;
+  viz.addPointCloud (points, "points");
+
+  // Draw each keypoint as a sphere
+  for (size_t i = 0; i < keypoints->size (); ++i)
+  {
+    // Get the point data
+    const pcl::PointWithScale & p = keypoints->points[i];
+
+    // Pick the radius of the sphere *
+    float r = 2 * p.scale;
+    // * Note: the scale is given as the standard deviation of a Gaussian blur, so a
+    //   radius of 2*p.scale is a good illustration of the extent of the keypoint
+
+    // Generate a unique string for each sphere
+    std::stringstream ss ("keypoint");
+    ss << i;
+
+    // Add a sphere at the keypoint
+    viz.addSphere (p, 2*p.scale, 1.0, 0.0, 0.0, ss.str ());
+  }
+
+  // Give control over to the visualizer
+  viz.spin ();
+}
+
+void visualize_correspondences (const pcl::PointCloud<pcl::PointXYZRGB>::Ptr points1,
+                                const pcl::PointCloud<pcl::PointWithScale>::Ptr keypoints1,
+                                const pcl::PointCloud<pcl::PointXYZRGB>::Ptr points2,
+                                const pcl::PointCloud<pcl::PointWithScale>::Ptr keypoints2,
+                                const std::vector<int> &correspondences,
+                                const std::vector<float> &correspondence_scores)
+{
+  // We want to visualize two clouds side-by-side, so do to this, we'll make copies of the clouds and transform them
+  // by shifting one to the left and the other to the right.  Then we'll draw lines between the corresponding points
+
+  // Create some new point clouds to hold our transformed data
+  pcl::PointCloud<pcl::PointXYZRGB>::Ptr points_left (new pcl::PointCloud<pcl::PointXYZRGB>);
+  pcl::PointCloud<pcl::PointWithScale>::Ptr keypoints_left (new pcl::PointCloud<pcl::PointWithScale>);
+  pcl::PointCloud<pcl::PointXYZRGB>::Ptr points_right (new pcl::PointCloud<pcl::PointXYZRGB>);
+  pcl::PointCloud<pcl::PointWithScale>::Ptr keypoints_right (new pcl::PointCloud<pcl::PointWithScale>);
+
+  // Shift the first clouds' points to the left
+  //const Eigen::Vector3f translate (0.0, 0.0, 0.3);
+  const Eigen::Vector3f translate (0.4, 0.0, 0.0);
+  const Eigen::Quaternionf no_rotation (0, 0, 0, 0);
+  pcl::transformPointCloud (*points1, *points_left, -translate, no_rotation);
+  pcl::transformPointCloud (*keypoints1, *keypoints_left, -translate, no_rotation);
+
+  // Shift the second clouds' points to the right
+  pcl::transformPointCloud (*points2, *points_right, translate, no_rotation);
+  pcl::transformPointCloud (*keypoints2, *keypoints_right, translate, no_rotation);
+
+  // Add the clouds to the vizualizer
+  pcl::visualization::PCLVisualizer viz;
+  viz.addPointCloud (points_left, "points_left");
+  viz.addPointCloud (points_right, "points_right");
+
+  // Compute the median correspondence score
+  std::vector<float> temp (correspondence_scores);
+  std::sort (temp.begin (), temp.end ());
+  float median_score = temp[temp.size ()/2];
+
+  // Draw lines between the best corresponding points
+  for (size_t i = 0; i < keypoints_left->size (); ++i)
+  {
+    if (correspondence_scores[i] > median_score)
+    {
+      continue; // Don't draw weak correspondences
+    }
+
+    // Get the pair of points
+    const pcl::PointWithScale & p_left = keypoints_left->points[i];
+    const pcl::PointWithScale & p_right = keypoints_right->points[correspondences[i]];
+
+    // Generate a random (bright) color
+    double r = (rand() % 100);
+    double g = (rand() % 100);
+    double b = (rand() % 100);
+    double max_channel = std::max (r, std::max (g, b));
+    r /= max_channel;
+    g /= max_channel;
+    b /= max_channel;
+
+    // Generate a unique string for each line
+    std::stringstream ss ("line");
+    ss << i;
+
+    // Draw the line
+    viz.addLine (p_left, p_right, r, g, b, ss.str ());
+  }
+
+  // Give control over to the visualizer
+  viz.spin ();
+}
+
+void keypointDemo(const char* filename)
+{	
+  // Create some new point clouds to hold our data
+  pcl::PointCloud<pcl::PointXYZRGB>::Ptr points (new pcl::PointCloud<pcl::PointXYZRGB>);
+
+  // Load a point cloud
+  pcl::io::loadPCDFile (filename, *points);
+
+  // Compute keypoints
+  const float min_scale = 0.1;
+  const int nr_octaves = 3;
+  const int nr_octaves_per_scale = 3;
+  const float min_contrast = 10.0;
+    pcl::PointCloud<pcl::PointWithScale>::Ptr keypoints = detectkeypoints (points, min_scale, nr_octaves, nr_octaves_per_scale, min_contrast);
+
+  // Visualize the point cloud and its keypoints
+	visualize_keypoints (points, keypoints);
+}
+
+void correspondences_demo (const char * filename_base)
+{
+	// Load the pair of point clouds
+	std::stringstream ss1, ss2;
+	ss1 << filename_base << "1.pcd";
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr points1 (new pcl::PointCloud<pcl::PointXYZRGB>);
+	pcl::io::loadPCDFile (ss1.str (), *points1);
+
+	ss2 << filename_base << "2.pcd";
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr points2 (new pcl::PointCloud<pcl::PointXYZRGB>);
+	pcl::io::loadPCDFile (ss2.str (), *points2);
+
+	// Downsample the cloud
+	const float voxel_grid_leaf_size = 0.01;
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr downsampled1 = downsample (points1, voxel_grid_leaf_size);
+	pcl::PointCloud<pcl::PointXYZRGB>::Ptr downsampled2 = downsample (points2, voxel_grid_leaf_size);
+
+	// Compute surface normals
+	const float normal_radius = 0.05;
+	pcl::PointCloud<pcl::Normal>::Ptr normals1 = computeNormals(downsampled1, normal_radius);
+	pcl::PointCloud<pcl::Normal>::Ptr normals2  = computeNormals(downsampled2, normal_radius);
+
+	// Compute keypoints
+	const float min_scale = 0.01;
+	const int nr_octaves = 3;
+	const int nr_octaves_per_scale = 3;
+	const float min_contrast = 10.0;
+	pcl::PointCloud<pcl::PointWithScale>::Ptr keypoints1 = detectkeypoints (points1, min_scale, nr_octaves, nr_octaves_per_scale, min_contrast);
+	pcl::PointCloud<pcl::PointWithScale>::Ptr keypoints2 =  detectkeypoints (points2, min_scale, nr_octaves, nr_octaves_per_scale, min_contrast);
+
+	// Compute PFH features
+	const float feature_radius = 0.08;
+	pcl::PointCloud<pcl::PFHSignature125>::Ptr descriptors1 = compute_PFH_features_at_keypoints (downsampled1, normals1, keypoints1, feature_radius);
+	pcl::PointCloud<pcl::PFHSignature125>::Ptr descriptors2 = compute_PFH_features_at_keypoints (downsampled2, normals2, keypoints2, feature_radius);
+
+	// Find feature correspondences
+	std::vector<int> correspondences;
+	std::vector<float> correspondence_scores;
+	find_feature_correspondences (descriptors1, descriptors2, correspondences, correspondence_scores);
+
+	// Print out ( number of keypoints / number of points )
+	std::cout << "First cloud: Found " << keypoints1->size () << " keypoints "
+		<< "out of " << downsampled1->size () << " total points." << std::endl;
+	std::cout << "Second cloud: Found " << keypoints2->size () << " keypoints "
+		<< "out of " << downsampled2->size () << " total points." << std::endl;
+
+//pcl::SampleConsensusInitialAlignment<pcl::PointWithScale, pcl::PointWithScale, pcl::PFHSignature125> sac_ia;
+//sac_ia.setNumberOfSamples (25);
+//sac_ia.setMinSampleDistance (0.005);
+////sac_ia.setCorrespondenceRandomness (k);
+//sac_ia.setMaximumIterations (300);
+//sac_ia.setInputCloud (keypoints1);
+//sac_ia.setInputTarget (keypoints2);
+//sac_ia.setSourceFeatures (descriptors1);
+//sac_ia.setTargetFeatures (descriptors2);
+//
+//pcl::PointCloud<pcl::PointWithScale>::Ptr aligned(new pcl::PointCloud<pcl::PointWithScale>());
+//sac_ia.align (*aligned);
+//Eigen::Matrix4f aaa = sac_ia.getFinalTransformation ();
+//
+//	pcl::PointCloud<pcl::PointXYZRGB>::Ptr points11 (new pcl::PointCloud<pcl::PointXYZRGB>);
+//				pcl::transformPointCloud(*points1.get(), *points11.get(), aaa);
+//
+//	// Visualize the two point clouds and their feature correspondences
+//	visualize (points11, points2);
+
+	visualize_correspondences(points1, keypoints1, points2, keypoints2, correspondences, correspondence_scores);
 }
 
 int main(int argc, char **argv){
-	pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud1 (new pcl::PointCloud<pcl::PointXYZRGB>);
-	pcl::io::loadPCDFile ("kinect0.pcd", *cloud1);
-
-	pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud2 (new pcl::PointCloud<pcl::PointXYZRGB>);
-	pcl::io::loadPCDFile ("kinect1.pcd", *cloud2);
-
-	pcl::PointCloud<pcl::PointXYZRGB>::Ptr ds1 (new pcl::PointCloud<pcl::PointXYZRGB>); 
-	downsample(cloud1, 0.1f, ds1);
-	/*pcl::PointCloud<pcl::PointXYZ>::Ptr ds2 (new pcl::PointCloud<pcl::PointXYZ>); 
-	downsample(cloud2, 0.01f, ds2);*/
-
-	
-	pcl::PointCloud<pcl::PointWithScale>::Ptr keys (new pcl::PointCloud<pcl::PointWithScale>); 
-
-	detectkeypoints(ds1, 0.1f, 4, 5, 1.0f, keys);
-
-	pcl::PointCloud<pcl::Normal>::Ptr nor1 (new pcl::PointCloud<pcl::Normal>);
-	computeNormals(ds1, nor1, 0.2);
-
-	pcl::PointCloud<pcl::PointXYZRGB>::Ptr keypoints_ptr(new pcl::PointCloud<pcl::PointXYZRGB>); 
-    pcl::copyPointCloud (*keys , *keypoints_ptr); 
-
-	visualize(keypoints_ptr, ds1, nor1);
-
-	while(true)
-		sleep(1);
-
- 	return 0;
+	//keypointDemo("kinect1.pcd");
+	//keypointDemo("robot2.pcd");
+	correspondences_demo("robot");
+  return (0);
 }
+
+#endif
 
 
