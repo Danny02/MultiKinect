@@ -34,6 +34,8 @@ private:
 
 	float calcDepth(USHORT raw);
 
+	void  SavePNG(BYTE* color, USHORT* depth);
+
 public:
 	typedef boost::shared_ptr<KinectSensor> Ptr;
 

@@ -21,7 +21,7 @@
 #include <pcl/features/fpfh.h>
 #include <pcl/registration/ia_ransac.h>
 
-
+#include <ctime>
 #include "stdafx.h"
 #include <iostream>
 #include <vector>
@@ -35,17 +35,19 @@
 
 #include "KinectSensor.h"
 
+
 #define sleep(x) Sleep((x) * 1000) 
 
-#define SCAN 0
+#define SCAN 1
 #if SCAN == 1
-const int DEVICE_NUMBER = 2;
+const int DEVICE_NUMBER = 1;
 std::vector<KinectSensor::Ptr> sensors;
 boost::array<int, 1> viewports;
 
-bool onlyOne = true;
+bool onlyOne = false;
 bool was[DEVICE_NUMBER];
 int tick = 0;
+int counter = 0;
 
 class SimpleKinectViewer {
 public:
@@ -54,13 +56,16 @@ public:
 	}
 
 	static void renderData(pcl::visualization::PCLVisualizer& viewer) {
+		clock_t begin = std::clock();
+
 		bool wasAll = true;
 		for(int i=0; i<DEVICE_NUMBER; ++i){
 			wasAll &= was[i];
 		}
-
+		
 		if(!wasAll){
 			for(int i=0; i<DEVICE_NUMBER; ++i){
+
 				int prev = (i + DEVICE_NUMBER - 1) % DEVICE_NUMBER;
 				int next = (i + 1) % DEVICE_NUMBER;
 
@@ -68,8 +73,7 @@ public:
 					while(sensors[prev]->setLaser(false) != S_OK);
 					cout << "set off " << prev << '\n';
 				}
-
-				sensors[i]->getNextColorPointCloud();
+				
 				pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud = sensors[i]->getNextColorPointCloud();
 
 				if(DEVICE_NUMBER > 1){
@@ -77,29 +81,33 @@ public:
 					cout << "set on " << next << '\n';
 				}
 
-				pcl::PointCloud<pcl::PointXYZRGB>::Ptr newCloud(new pcl::PointCloud<pcl::PointXYZRGB>);
-				Eigen::Affine3f aux(Eigen::Affine3f::Identity());
-				aux.translate(Eigen::Vector3f(2*i - 1,0,0));
+				//pcl::PointCloud<pcl::PointXYZRGB>::Ptr newCloud(new pcl::PointCloud<pcl::PointXYZRGB>);
+				//Eigen::Affine3f aux(Eigen::Affine3f::Identity());
+				//aux.translate(Eigen::Vector3f(2*i - 1,0,0));
 
-				pcl::transformPointCloud(*cloud.get(), *newCloud.get(), aux);
-				cloud = newCloud;
-
-				cout << cloud->points.size() << '\n';
-				if(cloud->points.size() > 0){
+				//pcl::transformPointCloud(*cloud.get(), *newCloud.get(), aux);
+				//cloud = newCloud;
+				
+				/*if(cloud->points.size() > 0){
 					std::string name = (boost::format("sample cloud %1%") % i).str();
 					pcl::visualization::PointCloudColorHandlerRGBField<pcl::PointXYZRGB> rgb(cloud);
 					if (!viewer.updatePointCloud<pcl::PointXYZRGB> (cloud, rgb, name)) {
 						viewer.addPointCloud<pcl::PointXYZRGB> (cloud, rgb, name, viewports[0]);
+						cout << "add cloud: " << name << '\n';
 					} else {
-						if(onlyOne && !was[i] && cloud->points.size() > 0){
-							was[i]=true;
-							std::string name = (boost::format("kinect%1%.pcd") % i).str();
-							pcl::io::savePCDFileBinary(name , *cloud.get());
-						}
+						*/if(cloud->points.size() > 0 && counter < 100 && counter % 10 == 0 ){
+							std::string name = (boost::format("cam2/kinect%1%.pcd") % counter).str();
+							pcl::io::savePCDFileBinaryCompressed(name , *cloud.get());
+						}/*
 					}
-				}
+				}*/
+							counter++;
 			}
 		}
+		
+		clock_t end = std::clock();
+		double secs = double(end - begin) / CLOCKS_PER_SEC;
+		cout << "time: " << secs << '\n';
 	}
 
 	static void ini(pcl::visualization::PCLVisualizer& viewer) {

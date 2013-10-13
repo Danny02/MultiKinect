@@ -1,5 +1,8 @@
 #include "KinectSensor.h"
 
+#include <boost/format.hpp> 
+#include "FreeImagePlus.h"
+
 const float KinectSensor::NAN = std::numeric_limits<float>::quiet_NaN();
 const float KinectSensor::DegreesToRadians = 3.14159265359f / 180.0f;
 const float KinectSensor::m_xyScale = tanf(NUI_CAMERA_DEPTH_NOMINAL_HORIZONTAL_FOV * DegreesToRadians * 0.5f) / (WIDTH * 0.5f);  
@@ -237,6 +240,48 @@ HRESULT SaveBitmapToFile(BYTE* pBitmapBits, LONG lWidth, LONG lHeight, WORD wBit
     return S_OK;
 }
 
+int png_counter = 0;
+void  KinectSensor::SavePNG(BYTE* color, USHORT* depth)
+{
+	if(png_counter < 100){
+		nuiSensor->NuiImageGetColorPixelCoordinateFrameFromDepthPixelFrameAtResolution(
+						RESOLUTION,
+						RESOLUTION,
+						AREA,
+						depthFrame,
+						AREA*2,
+						colorCoordinates
+						);
+	
+		fipImage img(FIT_RGB16, WIDTH, HEIGHT, 48);
+
+		for(int y = 0; y < HEIGHT; ++y){
+			BYTE* pixels = img.getScanLine(HEIGHT - y - 1);
+			for(int x = 0; x < WIDTH; ++x){
+				int id = x+y*WIDTH;	
+
+				//pixels[x + 3] = (BYTE)((depth[id] / (float)(2<<11)) * 256);
+				pixels[x*6 + 3] = (byte)((depth[id] >> 8) & 0xFF);
+				pixels[x*6 + 4] = (byte)(depth[id] & 0xFF);
+
+				LONG colorInDepthX = colorCoordinates[id * 2];
+				LONG colorInDepthY = colorCoordinates[id * 2 + 1];
+				// make sure the depth pixel maps to a valid point in color space
+				if ( colorInDepthX >= 0 && colorInDepthX < WIDTH && colorInDepthY >= 0 && colorInDepthY < HEIGHT )
+				{
+					LONG colorIndex = (colorInDepthX + colorInDepthY * WIDTH) * 4;
+					pixels[x*6 + 2] = colorFrame[colorIndex + 2];
+					pixels[x*6 + 1] = colorFrame[colorIndex + 1];
+					pixels[x*6 + 0] = colorFrame[colorIndex];			
+				}
+			}	
+		}
+
+		img.save((boost::format("cam2/shot%1%.png") % png_counter).str().data());
+	}
+	png_counter++;
+}
+
 pcl::PointCloud<pcl::PointXYZRGB>::Ptr KinectSensor::getNextColorPointCloud(){	
 	pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud (new pcl::PointCloud<pcl::PointXYZRGB>);
 
@@ -249,6 +294,8 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr KinectSensor::getNextColorPointCloud(){
 
 		if(WAIT_OBJECT_0 == WaitForSingleObject(depthEvent, 0) ){
 			HRESULT hr2 = getFrameData(depthFrame, depthStreamHandle);
+
+			SavePNG(colorFrame, depthFrame);
 
 			if( SUCCEEDED(hr1) && SUCCEEDED(hr2) ) {
 				// Get of x, y coordinates for color in depth space
@@ -282,9 +329,9 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr KinectSensor::getNextColorPointCloud(){
 						{
 							//RGBx format, RGB + padding byte
 							LONG colorIndex = (colorInDepthX + colorInDepthY * WIDTH) * 4;
-							point.r = colorFrame[colorIndex];
+							point.r = colorFrame[colorIndex + 2];
 							point.g = colorFrame[colorIndex + 1];
-							point.b = colorFrame[colorIndex + 2];
+							point.b = colorFrame[colorIndex];
 						}
 
 						cloud->points[id] = point;
