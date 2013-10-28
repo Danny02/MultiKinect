@@ -40,7 +40,7 @@
 
 #define SCAN 1
 #if SCAN == 1
-const int DEVICE_NUMBER = 1;
+const int DEVICE_NUMBER = 2;
 std::vector<KinectSensor::Ptr> sensors;
 boost::array<int, 1> viewports;
 
@@ -68,12 +68,13 @@ public:
 
 				int prev = (i + DEVICE_NUMBER - 1) % DEVICE_NUMBER;
 				int next = (i + 1) % DEVICE_NUMBER;
-
+				
 				if(DEVICE_NUMBER > 1){
 					while(sensors[prev]->setLaser(false) != S_OK);
 					cout << "set off " << prev << '\n';
 				}
 				
+				Sleep(200);//es dauert ne zeit bis der laser wieder an ist denk ich
 				pcl::PointCloud<pcl::PointXYZRGB>::Ptr cloud = sensors[i]->getNextColorPointCloud();
 
 				if(DEVICE_NUMBER > 1){
@@ -94,10 +95,16 @@ public:
 					if (!viewer.updatePointCloud<pcl::PointXYZRGB> (cloud, rgb, name)) {
 						viewer.addPointCloud<pcl::PointXYZRGB> (cloud, rgb, name, viewports[0]);
 						cout << "add cloud: " << name << '\n';
-					} else {
-						*/if(cloud->points.size() > 0 && counter < 100 && counter % 10 == 0 ){
-							std::string name = (boost::format("cam2/kinect%1%.pcd") % counter).str();
-							pcl::io::savePCDFileBinaryCompressed(name , *cloud.get());
+						} else {
+						*/if(cloud->points.size() > 0 && counter < 50 && (counter-i) % 10 == 0 ){
+							std::string name = (boost::format("Aufnahmen/Messung2/kinect%1%_%2%.pcd") % i % ((counter-i) / 10)).str();
+							try{
+								pcl::io::savePCDFileBinaryCompressed(name , *cloud.get());
+							}
+							catch (pcl::IOException e)
+							{
+								cout << "An exception occurred. Exception Nr. " << e.detailedMessage() << endl;
+							}
 						}/*
 					}
 				}*/
@@ -123,9 +130,9 @@ public:
 		}
 		viewer.initCameraParameters();
 		
-		/*for(int i=0; i<DEVICE_NUMBER; ++i){
+		for(int i=0; i<DEVICE_NUMBER; ++i){
 			sensors[i]->setNearMode(true);
-		}*/
+		}
 		for(int i=1; i<DEVICE_NUMBER; ++i){
 			sensors[i]->setLaser(false);
 		}

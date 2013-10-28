@@ -105,12 +105,12 @@ template<class PointT> PointT KinectSensor::calcPos(int x, int y, USHORT raw){
 	// Essentially we're computing the vector that light comes in on for a given pixel on the depth camera
 	// We can then scale our x&y depth position by this and the depth to get how far along that vector we are
 
-	float realDepth = raw > 0 ? raw / 1000.0f : NAN;
+	float realDepth = raw > 0 ? (raw >> 3) / 100.0f : NAN;
 
 	PointT result;
 	result.x = (x - WIDTH/2)*m_xyScale * realDepth;
 	result.y = (y - HEIGHT/2)*(-m_xyScale) * realDepth;
-	result.z = realDepth;
+	result.z = -realDepth;
 
 	return result;
 }
@@ -295,7 +295,7 @@ pcl::PointCloud<pcl::PointXYZRGB>::Ptr KinectSensor::getNextColorPointCloud(){
 		if(WAIT_OBJECT_0 == WaitForSingleObject(depthEvent, 0) ){
 			HRESULT hr2 = getFrameData(depthFrame, depthStreamHandle);
 
-			SavePNG(colorFrame, depthFrame);
+			//SavePNG(colorFrame, depthFrame);
 
 			if( SUCCEEDED(hr1) && SUCCEEDED(hr2) ) {
 				// Get of x, y coordinates for color in depth space
